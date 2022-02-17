@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"net/url"
+
+	drssnostr "github.com/plantimals/drss-nostr"
 )
 
 type config struct {
@@ -38,15 +40,15 @@ func parseFlags() *config {
 
 func main() {
 	config := parseFlags()
-	drss, err := drssnostr.rssToDRSS(config.FeedURL)
+	drss, err := drssnostr.RSSToDRSS(config.FeedURL)
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println(drss.DisplayName)
-	json, err := cid.MarshalJSON()
+	/*json, err := cid.MarshalJSON()
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(string(json))
+	fmt.Println(string(json))*/
 
 }
