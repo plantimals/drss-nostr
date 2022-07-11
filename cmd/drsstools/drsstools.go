@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/url"
 
+	"github.com/fiatjaf/go-nostr"
 	drssnostr "github.com/plantimals/drss-nostr"
 )
 
@@ -38,6 +41,14 @@ func parseFlags() *config {
 	}
 }
 
+func PrettyString(str string) (string, error) {
+	var prettyJSON bytes.Buffer
+	if err := json.Indent(&prettyJSON, []byte(str), "", "    "); err != nil {
+		return "", err
+	}
+	return prettyJSON.String(), nil
+}
+
 func main() {
 	config := parseFlags()
 	drss, err := drssnostr.RSSToDRSS(config.FeedURL)
@@ -45,10 +56,18 @@ func main() {
 		panic(err)
 	}
 	fmt.Println(drss.DisplayName)
-	/*json, err := cid.MarshalJSON()
-	if err != nil {
-		panic(err)
+	fmt.Println(drss.PubKey)
+	privKey := nostr.GeneratePrivateKey()
+	for _, item := range drss.RSS.Items {
+		ev, err := drssnostr.RSSItemToEvent(item, privKey, drss.PubKey)
+		if err != nil {
+			panic(err)
+		}
+		j, err := ev.MarshalJSON()
+		if err != nil {
+			panic(err)
+		}
+		event, _ := PrettyString(string(j))
+		fmt.Println(event)
 	}
-	fmt.Println(string(json))*/
-
 }

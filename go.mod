@@ -5,6 +5,7 @@ go 1.17
 require (
 	github.com/fiatjaf/go-nostr v0.6.2
 	github.com/mmcdole/gofeed v1.1.3
+	github.com/sirupsen/logrus v1.8.1
 )
 
 require (
@@ -19,5 +20,6 @@ require (
 	github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742 // indirect
 	github.com/valyala/fastjson v1.6.3 // indirect
 	golang.org/x/net v0.0.0-20200301022130-244492dfa37a // indirect
+	golang.org/x/sys v0.0.0-20220708085239-5a0f0661e09d // indirect
 	golang.org/x/text v0.3.2 // indirect
 )
