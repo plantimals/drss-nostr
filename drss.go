@@ -6,16 +6,19 @@ import (
 
 	nostr "github.com/fiatjaf/go-nostr"
 	"github.com/mmcdole/gofeed"
-	log "github.com/sirupsen/logrus"
 )
 
-type PublicKey string
-
 type Feed struct {
-	DisplayName string
-	PubKey      PublicKey
-	RSS         *gofeed.Feed
-	Items       []*nostr.Event
+	DisplayName  string
+	PubKey       string
+	RSS          *gofeed.Feed
+	Events       []*nostr.Event
+	LastItemGUID string
+}
+
+type DRSSIdentity struct {
+	PrivKey string
+	PubKey  string
 }
 
 func GetRSSFeed(url string) (*gofeed.Feed, error) {
@@ -26,46 +29,95 @@ func GetRSSFeed(url string) (*gofeed.Feed, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return feed, nil
 }
 
-func RSSToDRSS(RSSurl string) (*Feed, error) {
+func RSSToDRSS(RSSurl string, privKey string) (*Feed, error) {
 	feed, err := GetRSSFeed(RSSurl)
 	if err != nil {
 		return nil, err
 	}
-	pk := nostr.GeneratePrivateKey()
-	pubk, err := nostr.GetPublicKey(pk)
 	if err != nil {
 		return nil, err
 	}
+
+	nostrEvents := make([]*nostr.Event, 0)
+
+	for _, item := range feed.Items {
+		ev, err := RSSItemToEvent(item, privKey)
+		if err != nil {
+			panic(err)
+		}
+		nostrEvents = append(nostrEvents, ev)
+	}
+
+	pubKey, err := nostr.GetPublicKey(privKey)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Feed{
 		DisplayName: feed.Title,
-		PubKey:      PublicKey(pubk),
+		PubKey:      pubKey,
 		RSS:         feed,
+		Events:      nostrEvents,
 	}, nil
 }
 
-func RSSItemToEvent(item *gofeed.Item, privateKey string, pubKey PublicKey) (*nostr.Event, error) {
-	/*content := ""
-	if item.Content != "" {
-		content = item.Content
-	} else {
+func RSSItemToEvent(item *gofeed.Item, privateKey string) (*nostr.Event, error) {
+	content := item.Content
+	if len(content) == 0 {
 		content = item.Description
-	}*/
-	content := item.Description
-	if len(content) > 250 {
-		content = content[:250]
-		log.Info("shortened description")
 	}
+
+	if len(content) > 250 {
+		content += content[0:249] + "…"
+	}
+	content += "\n\n" + item.Link
+
+	pubkey, err := nostr.GetPublicKey(privateKey)
+	if err != nil {
+		return nil, err
+	}
+
+	createdAt := time.Now()
+	if item.UpdatedParsed != nil {
+		createdAt = *item.UpdatedParsed
+	}
+	if item.PublishedParsed != nil {
+		createdAt = *item.PublishedParsed
+	}
+
 	n := nostr.Event{
-		CreatedAt: time.Now(),
+		CreatedAt: createdAt,
 		Kind:      nostr.KindTextNote,
-		Tags:      make(nostr.Tags, 0),
+		Tags:      nostr.Tags{},
 		Content:   content,
-		PubKey:    string(pubKey),
+		PubKey:    pubkey,
 	}
 	n.ID = string(n.Serialize())
 	n.Sign(privateKey)
 	return &n, nil
+}
+
+func DRSSToRSS(events []*nostr.Event) (*gofeed.Feed, error) {
+	feed := &gofeed.Feed{
+		Items: make([]*gofeed.Item, 0),
+	}
+	for _, ev := range events {
+		item, err := EventToItem(ev)
+		if err != nil {
+			return nil, err
+		}
+		feed.Items = append(feed.Items, item)
+	}
+	return feed, nil
+}
+
+func EventToItem(event *nostr.Event) (*gofeed.Item, error) {
+	item := &gofeed.Item{
+		Content: event.Content,
+	}
+	return item, nil
 }

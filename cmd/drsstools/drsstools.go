@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/fiatjaf/go-nostr"
 	drssnostr "github.com/plantimals/drss-nostr"
 )
 
 type config struct {
 	StoragePath  string
 	FeedURL      string
+	PrivateKey   string
 	DumpSchema   bool
 	DumpJSONFeed bool
 }
@@ -21,10 +21,12 @@ type config struct {
 func parseFlags() *config {
 	var storagePath string
 	var feedURL string
+	var privateKey string
 	var dumpSchema bool
 	var dumpJSONFeed bool
 	flag.StringVar(&storagePath, "storage", "./feed", "path to construct feed")
 	flag.StringVar(&feedURL, "feedURL", "https://ipfs.io/blog/index.xml", "feed URL")
+	flag.StringVar(&privateKey, "privateKey", "6f6285da349cc629bda7dd72f96dee872c3bfd93f31c2ab5e4ead47588d870b7", "private key")
 	flag.BoolVar(&dumpSchema, "schema", false, "dump the IPFeed jsonschema")
 	flag.BoolVar(&dumpJSONFeed, "toJSON", false, "dump the contents of the provided URL in jsonfeed format to stdout")
 	flag.Parse()
@@ -36,6 +38,7 @@ func parseFlags() *config {
 	return &config{
 		StoragePath:  storagePath,
 		FeedURL:      feedURL,
+		PrivateKey:   privateKey,
 		DumpSchema:   dumpSchema,
 		DumpJSONFeed: dumpJSONFeed,
 	}
@@ -51,19 +54,13 @@ func PrettyString(str string) (string, error) {
 
 func main() {
 	config := parseFlags()
-	drss, err := drssnostr.RSSToDRSS(config.FeedURL)
+	drss, err := drssnostr.RSSToDRSS(config.FeedURL, config.PrivateKey)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(drss.DisplayName)
-	fmt.Println(drss.PubKey)
-	privKey := nostr.GeneratePrivateKey()
-	for _, item := range drss.RSS.Items {
-		ev, err := drssnostr.RSSItemToEvent(item, privKey, drss.PubKey)
-		if err != nil {
-			panic(err)
-		}
-		j, err := ev.MarshalJSON()
+
+	for _, item := range drss.Events {
+		j, err := item.MarshalJSON()
 		if err != nil {
 			panic(err)
 		}
