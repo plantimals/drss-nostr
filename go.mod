@@ -13,6 +13,7 @@ require (
 	github.com/andybalholm/cascadia v1.1.0 // indirect
 	github.com/btcsuite/btcd v0.20.1-beta // indirect
 	github.com/fiatjaf/bip340 v1.1.1 // indirect
+	github.com/gorilla/feeds v1.1.1 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/json-iterator/go v1.1.10 // indirect
 	github.com/mmcdole/goxpp v0.0.0-20181012175147-0068e33feabf // indirect

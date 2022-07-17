@@ -2,10 +2,13 @@ package drssnostr
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	nostr "github.com/fiatjaf/go-nostr"
+	"github.com/gorilla/feeds"
 	"github.com/mmcdole/gofeed"
+	log "github.com/sirupsen/logrus"
 )
 
 type Feed struct {
@@ -14,11 +17,6 @@ type Feed struct {
 	RSS          *gofeed.Feed
 	Events       []*nostr.Event
 	LastItemGUID string
-}
-
-type DRSSIdentity struct {
-	PrivKey string
-	PubKey  string
 }
 
 func GetRSSFeed(url string) (*gofeed.Feed, error) {
@@ -101,23 +99,66 @@ func RSSItemToEvent(item *gofeed.Item, privateKey string) (*nostr.Event, error) 
 	return &n, nil
 }
 
-func DRSSToRSS(events []*nostr.Event) (*gofeed.Feed, error) {
-	feed := &gofeed.Feed{
-		Items: make([]*gofeed.Item, 0),
+func DRSSToRSS(title string) (string, error) {
+	rp := nostr.NewRelayPool()
+	err := rp.Add("wss://nostr.drss.io", nil)
+	if err != nil {
+		return "", err
 	}
-	for _, ev := range events {
-		item, err := EventToItem(ev)
-		if err != nil {
-			return nil, err
+	keys := make([]string, 0)
+	keys = append(keys, "dd81a8bacbab0b5c3007d1672fb8301383b4e9583d431835985057223eb298a5")
+	sub := rp.Sub(nostr.Filters{{
+		Authors: keys,
+		Kinds:   nostr.IntList{nostr.KindTextNote},
+	}})
+
+	fmt.Println("before pull events")
+
+	//events := make([]*nostr.Event, 0)
+
+	items := make([]*feeds.Item, 0)
+	go func() {
+		for e := range sub.UniqueEvents {
+			fmt.Println("default")
+			item, err := EventToItem(&e)
+			if err != nil {
+				log.Error(err)
+				return
+			}
+			items = append(items, item)
+
+			fmt.Println(item)
 		}
-		feed.Items = append(feed.Items, item)
+		log.Info("done pulling events")
+	}()
+	time.Sleep(3 * time.Second)
+	sub.Unsub()
+
+	if err != nil {
+		return "", err
 	}
-	return feed, nil
+
+	feed := &feeds.Feed{
+		Title:       title,
+		Created:     time.Now(),
+		Link:        &feeds.Link{Href: fmt.Sprintf("https://nostr.com/p/%s", keys[0])},
+		Description: fmt.Sprintf("drss feed generated from nostr events by the public key: %s", keys[0]),
+		Items:       items,
+	}
+	answer, err := feed.ToAtom()
+	if err != nil {
+		return "", err
+	}
+	return answer, nil
 }
 
-func EventToItem(event *nostr.Event) (*gofeed.Item, error) {
-	item := &gofeed.Item{
+func EventToItem(event *nostr.Event) (*feeds.Item, error) {
+	item := &feeds.Item{
+		Author:  &feeds.Author{Name: event.PubKey},
 		Content: event.Content,
+		Created: event.CreatedAt,
+		Link:    &feeds.Link{Href: fmt.Sprintf("https://nostr.com/e/%s", event.ID)},
+		Id:      event.ID,
 	}
 	return item, nil
 }

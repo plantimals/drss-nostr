@@ -53,8 +53,22 @@ func PrettyString(str string) (string, error) {
 }
 
 func main() {
-	config := parseFlags()
-	drss, err := drssnostr.RSSToDRSS(config.FeedURL, config.PrivateKey)
+	conf := parseFlags()
+	//rss2drss(conf)
+	drss2rss(conf)
+
+}
+
+func drss2rss(conf *config) {
+	feed, err := drssnostr.DRSSToRSS("plantimals")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(feed)
+}
+
+func rss2drss(conf *config) {
+	drss, err := drssnostr.RSSToDRSS(conf.FeedURL, conf.PrivateKey)
 	if err != nil {
 		panic(err)
 	}
