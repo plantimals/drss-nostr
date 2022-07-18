@@ -2,21 +2,56 @@ package drssnostr
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	nostr "github.com/fiatjaf/go-nostr"
-	"github.com/gorilla/feeds"
-	"github.com/mmcdole/gofeed"
+	"github.com/gorilla/feeds"  //composes RSS from nostr events
+	"github.com/mmcdole/gofeed" //parses RSS from nostr events
 	log "github.com/sirupsen/logrus"
 )
 
-type Feed struct {
-	DisplayName  string
-	PubKey       string
-	RSS          *gofeed.Feed
+type DRSSFeed struct {
+	DisplayName  string   `json:"display_name,omitempty"`
+	PubKeys      []string `json:"pub_keys,omitempty"`
+	PrivKey      string   `json:"priv_key,omitempty"`
+	Relays       []string `json:"relays,omitempty"`
+	Pools        *nostr.RelayPool
+	FeedURL      string `json:"feed_url,omitempty"`
+	RSS          *feeds.Feed
 	Events       []*nostr.Event
 	LastItemGUID string
+}
+
+func NewFeed(j []byte) (*DRSSFeed, error) {
+	var feed DRSSFeed
+	err := json.Unmarshal(j, &feed)
+	if err != nil {
+		return nil, err
+	}
+	if feed.Relays != nil {
+		feed.AddRelays()
+	}
+	return &feed, nil
+}
+
+func (f *DRSSFeed) AddRelays(relays ...string) error {
+	if f.Relays == nil {
+		f.Relays = make([]string, 0)
+	}
+	for _, r := range relays {
+		f.Relays = append(f.Relays, r)
+	}
+	f.Pools = nostr.NewRelayPool()
+	for _, r := range f.Relays {
+		err := f.Pools.Add(r, nostr.SimplePolicy{Read: true, Write: true})
+		if err != nil {
+			return nil
+		}
+	}
+	f.Pools.SecretKey = &f.PrivKey
+	return nil
 }
 
 func GetRSSFeed(url string) (*gofeed.Feed, error) {
@@ -31,36 +66,59 @@ func GetRSSFeed(url string) (*gofeed.Feed, error) {
 	return feed, nil
 }
 
-func RSSToDRSS(RSSurl string, privKey string) (*Feed, error) {
-	feed, err := GetRSSFeed(RSSurl)
-	if err != nil {
-		return nil, err
+func (f *DRSSFeed) RSSToDRSS() error {
+
+	//check that feed object has necessary inputs for this operation
+	if f.PrivKey == "" {
+		return fmt.Errorf("no priv key")
+	} else if f.FeedURL == "" {
+		return fmt.Errorf("no feed url")
+	} else if f.Relays == nil {
+		return fmt.Errorf("no relays")
 	}
+
+	feed, err := GetRSSFeed(f.FeedURL)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	nostrEvents := make([]*nostr.Event, 0)
 
 	for _, item := range feed.Items {
-		ev, err := RSSItemToEvent(item, privKey)
+		ev, err := RSSItemToEvent(item, f.PrivKey)
 		if err != nil {
 			panic(err)
 		}
 		nostrEvents = append(nostrEvents, ev)
 	}
 
-	pubKey, err := nostr.GetPublicKey(privKey)
+	pubKey, err := nostr.GetPublicKey(f.PrivKey)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return &Feed{
-		DisplayName: feed.Title,
-		PubKey:      pubKey,
-		RSS:         feed,
-		Events:      nostrEvents,
-	}, nil
+	f.PubKeys = append(f.PubKeys, pubKey)
+	f.Events = nostrEvents
+
+	return nil
+}
+
+func (f *DRSSFeed) PublishNostr() error {
+	//check that feed object has necessary inputs for this operation
+	if f.Events == nil || len(f.Events) == 0 {
+		return fmt.Errorf("no events")
+	}
+	if f.Pools == nil {
+		return fmt.Errorf("no pools")
+	}
+
+	for _, ev := range f.Events {
+		_, _, err := f.Pools.PublishEvent(ev)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func RSSItemToEvent(item *gofeed.Item, privateKey string) (*nostr.Event, error) {
@@ -99,27 +157,25 @@ func RSSItemToEvent(item *gofeed.Item, privateKey string) (*nostr.Event, error) 
 	return &n, nil
 }
 
-func DRSSToRSS(title string) (string, error) {
+// DRSSToRSS converts a DRSS feed to a RSS feed
+// takes n pubkeys and compiles them into a feed
+func (f *DRSSFeed) DRSSToRSS() error {
 	rp := nostr.NewRelayPool()
 	err := rp.Add("wss://nostr.drss.io", nil)
 	if err != nil {
-		return "", err
+		return err
 	}
-	keys := make([]string, 0)
-	keys = append(keys, "dd81a8bacbab0b5c3007d1672fb8301383b4e9583d431835985057223eb298a5")
+	key := "dd81a8bacbab0b5c3007d1672fb8301383b4e9583d431835985057223eb298a5"
 	sub := rp.Sub(nostr.Filters{{
-		Authors: keys,
+		Authors: nostr.StringList{key},
 		Kinds:   nostr.IntList{nostr.KindTextNote},
 	}})
 
-	fmt.Println("before pull events")
-
-	//events := make([]*nostr.Event, 0)
-
 	items := make([]*feeds.Item, 0)
+
+	//launch a goroutine to listen to the relay
 	go func() {
 		for e := range sub.UniqueEvents {
-			fmt.Println("default")
 			item, err := EventToItem(&e)
 			if err != nil {
 				log.Error(err)
@@ -127,29 +183,21 @@ func DRSSToRSS(title string) (string, error) {
 			}
 			items = append(items, item)
 
-			fmt.Println(item)
 		}
-		log.Info("done pulling events")
 	}()
-	time.Sleep(3 * time.Second)
+
+	//wait to receive all events then close the subscription
+	time.Sleep(1 * time.Second)
 	sub.Unsub()
 
-	if err != nil {
-		return "", err
-	}
-
-	feed := &feeds.Feed{
-		Title:       title,
+	f.RSS = &feeds.Feed{
+		Title:       f.DisplayName,
 		Created:     time.Now(),
-		Link:        &feeds.Link{Href: fmt.Sprintf("https://nostr.com/p/%s", keys[0])},
-		Description: fmt.Sprintf("drss feed generated from nostr events by the public key: %s", keys[0]),
+		Link:        &feeds.Link{Href: fmt.Sprintf("https://nostr.com/p/%s", key)},
+		Description: fmt.Sprintf("drss feed generated from nostr events by the public key: %s", key),
 		Items:       items,
 	}
-	answer, err := feed.ToAtom()
-	if err != nil {
-		return "", err
-	}
-	return answer, nil
+	return nil
 }
 
 func EventToItem(event *nostr.Event) (*feeds.Item, error) {
