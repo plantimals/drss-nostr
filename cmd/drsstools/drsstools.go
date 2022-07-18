@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"net/url"
+	"os"
 
 	drssnostr "github.com/plantimals/drss-nostr"
 	log "github.com/sirupsen/logrus"
@@ -17,6 +18,7 @@ type config struct {
 	PublicKeys  []string
 	Relays      []string
 	DisplayName string
+	Cmd         string
 }
 
 type StringList []string
@@ -30,18 +32,23 @@ func (s *StringList) Set(value string) error {
 	return nil // no error to return
 }
 
-var publicKeys, relays StringList
-
 func parseFlags() *config {
-	var feedURL string
-	var privateKey string
-	var displayName string
+	var feedURL, privateKey, cmd, displayName string
+
+	var publicKeys, relays StringList
+
 	flag.StringVar(&feedURL, "feedURL", "https://ipfs.io/blog/index.xml", "feed URL")
 	flag.StringVar(&privateKey, "privateKey", "6f6285da349cc629bda7dd72f96dee872c3bfd93f31c2ab5e4ead47588d870b7", "private key")
 	flag.StringVar(&displayName, "displayName", "plantimals", "display name")
+	flag.StringVar(&cmd, "cmd", "d2r", "d2r or r2d")
 	flag.Var(&publicKeys, "publicKeys", "public keys")
 	flag.Var(&relays, "relays", "relay URLs")
 	flag.Parse()
+
+	if len(os.Args) < 2 {
+		flag.Usage()
+		os.Exit(1)
+	}
 
 	_, err := url.ParseRequestURI(feedURL)
 	if err != nil {
@@ -53,6 +60,7 @@ func parseFlags() *config {
 		PublicKeys:  publicKeys,
 		Relays:      relays,
 		DisplayName: displayName,
+		Cmd:         cmd,
 	}
 }
 
@@ -64,31 +72,8 @@ func PrettyString(str string) (string, error) {
 	return prettyJSON.String(), nil
 }
 
-func main() {
-	conf := parseFlags()
-
-	dfeed := &drssnostr.DRSSFeed{
-		DisplayName: conf.DisplayName,
-		PubKeys:     conf.PublicKeys,
-		PrivKey:     conf.PrivateKey,
-		Relays:      conf.Relays,
-		FeedURL:     conf.FeedURL,
-	}
-	if err := dfeed.AddRelays(); err != nil {
-		panic(err)
-	}
-	log.Info(fmt.Sprintf("found %d relays", len(dfeed.Relays)))
-
-	drss2rss(dfeed)
-	/*rss2drss(dfeed)
-	feedString, err := dfeed.ToString()
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(PrettyString(feedString))*/
-}
-
 func drss2rss(f *drssnostr.DRSSFeed) {
+	log.Info("converting DRSS to RSS")
 	if err := f.DRSSToRSS(); err != nil {
 		panic(err)
 	}
@@ -104,4 +89,32 @@ func rss2drss(f *drssnostr.DRSSFeed) {
 		panic(err)
 	}
 	f.PublishNostr()
+}
+
+func main() {
+	conf := parseFlags()
+
+	dfeed := &drssnostr.DRSSFeed{
+		DisplayName: conf.DisplayName,
+		PubKeys:     conf.PublicKeys,
+		PrivKey:     conf.PrivateKey,
+		Relays:      conf.Relays,
+		FeedURL:     conf.FeedURL,
+	}
+	if err := dfeed.AddRelays(); err != nil {
+		panic(err)
+	}
+	log.Info(fmt.Sprintf("found %d publicKeys in conf", len(conf.PublicKeys)))
+	log.Info(fmt.Sprintf("found %d publicKeys", len(dfeed.PubKeys)))
+	switch conf.Cmd {
+	case "d2r":
+		drss2rss(dfeed)
+	case "r2d":
+		rss2drss(dfeed)
+		feedString, err := dfeed.ToString()
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(PrettyString(feedString))
+	}
 }

@@ -208,6 +208,8 @@ func (f *DRSSFeed) DRSSToRSS() error {
 	time.Sleep(1 * time.Second)
 	sub.Unsub()
 
+	log.Info(fmt.Sprintf("%d publicKeys found", len(f.PubKeys)))
+
 	f.RSS = &feeds.Feed{
 		Title:       f.DisplayName,
 		Created:     time.Now(),
