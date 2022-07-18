@@ -12,18 +12,20 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// DRSSFeed is a collection of data required to go from RSS to nostr and back
 type DRSSFeed struct {
-	DisplayName  string   `json:"display_name,omitempty"`
-	PubKeys      []string `json:"pub_keys,omitempty"`
-	PrivKey      string   `json:"priv_key,omitempty"`
-	Relays       []string `json:"relays,omitempty"`
-	Pools        *nostr.RelayPool
-	FeedURL      string `json:"feed_url,omitempty"`
-	RSS          *feeds.Feed
-	Events       []*nostr.Event
-	LastItemGUID string
+	DisplayName  string           `json:"display_name,omitempty"`
+	PubKeys      []string         `json:"pub_keys,omitempty"`
+	PrivKey      string           `json:"priv_key,omitempty"`
+	Relays       []string         `json:"relays,omitempty"`
+	Pools        *nostr.RelayPool `json:"-"`
+	FeedURL      string           `json:"feed_url,omitempty"`
+	RSS          *feeds.Feed      `json:"-"`
+	Events       []*nostr.Event   `json:"-"`
+	LastItemGUID string           `json:"-"`
 }
 
+// NewFeed parses a json representation of a DRSSFeed and returns a DRSSFeed
 func NewFeed(j []byte) (*DRSSFeed, error) {
 	var feed DRSSFeed
 	err := json.Unmarshal(j, &feed)
@@ -36,6 +38,16 @@ func NewFeed(j []byte) (*DRSSFeed, error) {
 	return &feed, nil
 }
 
+// DRSSFeed dump the feed to a json string
+func (f *DRSSFeed) ToString() (string, error) {
+	answer, err := json.Marshal(f)
+	if err != nil {
+		return "", err
+	}
+	return string(answer), nil
+}
+
+// AddRelays adds relays to the feed
 func (f *DRSSFeed) AddRelays(relays ...string) error {
 	if f.Relays == nil {
 		f.Relays = make([]string, 0)
@@ -54,6 +66,7 @@ func (f *DRSSFeed) AddRelays(relays ...string) error {
 	return nil
 }
 
+// GetRSSFeed pulls an RSS feed from the URL and parses it into a feeds.Feed
 func GetRSSFeed(url string) (*gofeed.Feed, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -66,6 +79,7 @@ func GetRSSFeed(url string) (*gofeed.Feed, error) {
 	return feed, nil
 }
 
+// RSSToDRSS converts an RSS feed to a DRSS feed, a collection of nostr events
 func (f *DRSSFeed) RSSToDRSS() error {
 
 	//check that feed object has necessary inputs for this operation
@@ -103,6 +117,7 @@ func (f *DRSSFeed) RSSToDRSS() error {
 	return nil
 }
 
+// PublishNostr publishes the nostr events in the feed to the relays
 func (f *DRSSFeed) PublishNostr() error {
 	//check that feed object has necessary inputs for this operation
 	if f.Events == nil || len(f.Events) == 0 {
@@ -111,16 +126,24 @@ func (f *DRSSFeed) PublishNostr() error {
 	if f.Pools == nil {
 		return fmt.Errorf("no pools")
 	}
+	pk, err := nostr.GetPublicKey(f.PrivKey)
+	if err != nil {
+		return err
+	}
+	log.Info("Publishing nostr events under public key: " + pk)
 
 	for _, ev := range f.Events {
 		_, _, err := f.Pools.PublishEvent(ev)
+		log.Info("Published event: " + ev.ID)
 		if err != nil {
 			return err
 		}
 	}
+	time.Sleep(3 * time.Second)
 	return nil
 }
 
+// RSSItemToEvent converts a RSS item and private key into a nostr event
 func RSSItemToEvent(item *gofeed.Item, privateKey string) (*nostr.Event, error) {
 	content := item.Content
 	if len(content) == 0 {
@@ -158,16 +181,11 @@ func RSSItemToEvent(item *gofeed.Item, privateKey string) (*nostr.Event, error) 
 }
 
 // DRSSToRSS converts a DRSS feed to a RSS feed
-// takes n pubkeys and compiles them into a feed
+// takes n public keys and compiles them into a feed
 func (f *DRSSFeed) DRSSToRSS() error {
-	rp := nostr.NewRelayPool()
-	err := rp.Add("wss://nostr.drss.io", nil)
-	if err != nil {
-		return err
-	}
-	key := "dd81a8bacbab0b5c3007d1672fb8301383b4e9583d431835985057223eb298a5"
-	sub := rp.Sub(nostr.Filters{{
-		Authors: nostr.StringList{key},
+
+	sub := f.Pools.Sub(nostr.Filters{{
+		Authors: nostr.StringList(f.PubKeys),
 		Kinds:   nostr.IntList{nostr.KindTextNote},
 	}})
 
@@ -193,13 +211,14 @@ func (f *DRSSFeed) DRSSToRSS() error {
 	f.RSS = &feeds.Feed{
 		Title:       f.DisplayName,
 		Created:     time.Now(),
-		Link:        &feeds.Link{Href: fmt.Sprintf("https://nostr.com/p/%s", key)},
-		Description: fmt.Sprintf("drss feed generated from nostr events by the public key: %s", key),
+		Link:        &feeds.Link{Href: fmt.Sprintf("https://nostr.com/p/%s", f.PubKeys[0])},
+		Description: fmt.Sprintf("drss feed generated from nostr events by the public key: %s", f.PubKeys[0]),
 		Items:       items,
 	}
 	return nil
 }
 
+// EventToItem converts a nostr event to a RSS item
 func EventToItem(event *nostr.Event) (*feeds.Item, error) {
 	item := &feeds.Item{
 		Author:  &feeds.Author{Name: event.PubKey},

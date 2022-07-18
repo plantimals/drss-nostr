@@ -8,6 +8,7 @@ import (
 	"net/url"
 
 	drssnostr "github.com/plantimals/drss-nostr"
+	log "github.com/sirupsen/logrus"
 )
 
 type config struct {
@@ -47,10 +48,11 @@ func parseFlags() *config {
 		panic(err)
 	}
 	return &config{
-		FeedURL:    feedURL,
-		PrivateKey: privateKey,
-		PublicKeys: publicKeys,
-		Relays:     relays,
+		FeedURL:     feedURL,
+		PrivateKey:  privateKey,
+		PublicKeys:  publicKeys,
+		Relays:      relays,
+		DisplayName: displayName,
 	}
 }
 
@@ -75,8 +77,15 @@ func main() {
 	if err := dfeed.AddRelays(); err != nil {
 		panic(err)
 	}
+	log.Info(fmt.Sprintf("found %d relays", len(dfeed.Relays)))
+
 	drss2rss(dfeed)
-	rss2drss(dfeed)
+	/*rss2drss(dfeed)
+	feedString, err := dfeed.ToString()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(PrettyString(feedString))*/
 }
 
 func drss2rss(f *drssnostr.DRSSFeed) {
@@ -94,11 +103,5 @@ func rss2drss(f *drssnostr.DRSSFeed) {
 	if err := f.RSSToDRSS(); err != nil {
 		panic(err)
 	}
-	for _, ev := range f.Events {
-		eventJson, err := json.Marshal(ev)
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println(string(eventJson))
-	}
+	f.PublishNostr()
 }
