@@ -54,6 +54,7 @@ func parseFlags() *config {
 	if err != nil {
 		panic(err)
 	}
+
 	return &config{
 		FeedURL:     feedURL,
 		PrivateKey:  privateKey,
