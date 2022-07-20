@@ -23,6 +23,25 @@ type DRSSFeed struct {
 	RSS          *feeds.Feed      `json:"-"`
 	Events       []*nostr.Event   `json:"-"`
 	LastItemGUID string           `json:"-"`
+	Profile      *NostrProfile    `json:"profile,omitempty"`
+}
+
+/*
+{
+	"id": "41ccdd13fa2c6062a4a218d272aa77e6fd0aa1fd7f3453e3090e7e8c3046d7bd",
+	"pubkey": "dd81a8bacbab0b5c3007d1672fb8301383b4e9583d431835985057223eb298a5",
+	"created_at": 1644348378,
+	"kind": 0,
+	"tags": [],
+	"content": "{\"name\":\"plantimals\",\"picture\":\"https://plantimals.org/img/avatar.png\",\"about\":\"[plantimals.org](https://plantimals.org)\",\"nip05\":\"_@plantimals.org\"}",
+	"sig": "412cc4732ead5505b84a7f73ee91216e696322ab3154b8bec415b9a94f3d25113cf8ec16b388c72c60648315a51729a724213a07ba7336e515dae8581e85be34"
+}*/
+
+type NostrProfile struct {
+	Name    string `json:"name,omitempty"`
+	Picture string `json:"picture,omitempty"`
+	About   string `json:"about,omitempty"`
+	Nip05   string `json:"nip05,omitempty"`
 }
 
 // NewFeed parses a json representation of a DRSSFeed and returns a DRSSFeed
@@ -178,6 +197,37 @@ func RSSItemToEvent(item *gofeed.Item, privateKey string) (*nostr.Event, error) 
 	n.ID = string(n.Serialize())
 	n.Sign(privateKey)
 	return &n, nil
+}
+
+func (f *DRSSFeed) GetProfile() error {
+	sub := f.Pools.Sub(nostr.Filters{{
+		Authors: nostr.StringList(f.PubKeys),
+		Kinds:   nostr.IntList{nostr.KindSetMetadata},
+	}})
+	events := make([]*nostr.Event, 0)
+	go func() {
+		for e := range sub.UniqueEvents {
+			events = append(events, &e)
+		}
+	}()
+	//wait to receive all events then close the subscription
+	time.Sleep(1 * time.Second)
+	sub.Unsub()
+
+	if len(events) > 1 {
+		return fmt.Errorf("more than one profile event")
+	} else if len(events) == 0 {
+		return fmt.Errorf("no profile event")
+	}
+
+	var profile NostrProfile
+	err := json.Unmarshal([]byte(events[0].Content), &profile)
+	if err != nil {
+		return err
+	}
+	f.Profile = &profile
+
+	return nil
 }
 
 func (f *DRSSFeed) GetEvents() error {
