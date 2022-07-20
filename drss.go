@@ -180,27 +180,18 @@ func RSSItemToEvent(item *gofeed.Item, privateKey string) (*nostr.Event, error) 
 	return &n, nil
 }
 
-// DRSSToRSS converts a DRSS feed to a RSS feed
-// takes n public keys and compiles them into a feed
-func (f *DRSSFeed) DRSSToRSS() error {
+func (f *DRSSFeed) GetEvents() error {
 
 	sub := f.Pools.Sub(nostr.Filters{{
 		Authors: nostr.StringList(f.PubKeys),
 		Kinds:   nostr.IntList{nostr.KindTextNote},
 	}})
 
-	items := make([]*feeds.Item, 0)
-
+	events := make([]*nostr.Event, 0)
 	//launch a goroutine to listen to the relay
 	go func() {
 		for e := range sub.UniqueEvents {
-			item, err := EventToItem(&e)
-			if err != nil {
-				log.Error(err)
-				return
-			}
-			items = append(items, item)
-
+			events = append(events, &e)
 		}
 	}()
 
@@ -208,7 +199,26 @@ func (f *DRSSFeed) DRSSToRSS() error {
 	time.Sleep(1 * time.Second)
 	sub.Unsub()
 
-	log.Info(fmt.Sprintf("%d publicKeys found", len(f.PubKeys)))
+	f.Events = events
+	return nil
+}
+
+// DRSSToRSS converts a DRSS feed to a RSS feed
+// takes n public keys and compiles them into a feed
+func (f *DRSSFeed) DRSSToRSS() error {
+
+	if err := f.GetEvents(); err != nil {
+		return err
+	}
+
+	items := make([]*feeds.Item, 0)
+	for _, ev := range f.Events {
+		item, err := EventToItem(ev)
+		if err != nil {
+			return err
+		}
+		items = append(items, item)
+	}
 
 	f.RSS = &feeds.Feed{
 		Title:       f.DisplayName,
