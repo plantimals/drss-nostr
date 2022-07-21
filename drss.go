@@ -247,8 +247,20 @@ func (f *DRSSFeed) GetEvents() error {
 	time.Sleep(1 * time.Second)
 	sub.Unsub()
 
-	f.Events = events
+	f.Events = UniquifyEvents(events)
 	return nil
+}
+
+func UniquifyEvents(events []*nostr.Event) []*nostr.Event {
+	uniq := make(map[string]*nostr.Event, 0)
+	for _, ev := range events {
+		uniq[ev.ID] = ev
+	}
+	uniqEvents := make([]*nostr.Event, 0)
+	for _, ev := range uniq {
+		uniqEvents = append(uniqEvents, ev)
+	}
+	return uniqEvents
 }
 
 // DRSSToRSS converts a DRSS feed to a RSS feed
