@@ -248,6 +248,9 @@ func (f *DRSSFeed) GetEvents() error {
 	time.Sleep(1 * time.Second)
 	sub.Unsub()
 	log.Printf("Received %d events", len(events))
+	for _, ev := range events {
+		log.Printf("Event: %s", ev.ID)
+	}
 	f.Events = UniquifyEvents(events)
 	return nil
 }
