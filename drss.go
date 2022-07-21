@@ -10,21 +10,18 @@ import (
 	nostr "github.com/fiatjaf/go-nostr"
 	"github.com/gorilla/feeds"  //composes RSS from nostr events
 	"github.com/mmcdole/gofeed" //parses RSS from nostr events
-	log "github.com/sirupsen/logrus"
 )
 
 // DRSSFeed is a collection of data required to go from RSS to nostr and back
 type DRSSFeed struct {
-	DisplayName  string           `json:"display_name,omitempty"`
-	PubKeys      []string         `json:"pub_keys,omitempty"`
-	PrivKey      string           `json:"priv_key,omitempty"`
-	Relays       []string         `json:"relays,omitempty"`
-	Pools        *nostr.RelayPool `json:"-"`
-	FeedURL      string           `json:"feed_url,omitempty"`
-	RSS          *feeds.Feed      `json:"-"`
-	Events       []*nostr.Event   `json:"-"`
-	LastItemGUID string           `json:"-"`
-	Profile      *NostrProfile    `json:"profile,omitempty"`
+	DisplayName string           `json:"display_name,omitempty"`
+	PubKey      string           `json:"pub_key,omitempty"`
+	Relays      []string         `json:"relays,omitempty"`
+	Pools       *nostr.RelayPool `json:"-"`
+	FeedURL     string           `json:"feed_url,omitempty"`
+	RSS         *feeds.Feed      `json:"-"`
+	Events      []*nostr.Event   `json:"-"`
+	Profile     *NostrProfile    `json:"profile,omitempty"`
 }
 
 /*
@@ -82,7 +79,6 @@ func (f *DRSSFeed) AddRelays(relays ...string) error {
 			return nil
 		}
 	}
-	f.Pools.SecretKey = &f.PrivKey
 	return nil
 }
 
@@ -100,7 +96,7 @@ func GetRSSFeed(url string) (*gofeed.Feed, error) {
 }
 
 // RSSToDRSS converts an RSS feed to a DRSS feed, a collection of nostr events
-func (f *DRSSFeed) RSSToDRSS() error {
+/*func (f *DRSSFeed) RSSToDRSS() error {
 
 	//check that feed object has necessary inputs for this operation
 	if f.PrivKey == "" {
@@ -161,7 +157,7 @@ func (f *DRSSFeed) PublishNostr() error {
 	}
 	time.Sleep(3 * time.Second)
 	return nil
-}
+}*/
 
 // RSSItemToEvent converts a RSS item and private key into a nostr event
 func RSSItemToEvent(item *gofeed.Item, privateKey string) (*nostr.Event, error) {
@@ -202,7 +198,7 @@ func RSSItemToEvent(item *gofeed.Item, privateKey string) (*nostr.Event, error) 
 
 func (f *DRSSFeed) GetProfile() error {
 	sub := f.Pools.Sub(nostr.Filters{{
-		Authors: nostr.StringList(f.PubKeys),
+		Authors: nostr.StringList{f.PubKey},
 		Kinds:   nostr.IntList{nostr.KindSetMetadata},
 	}})
 	events := make([]*nostr.Event, 0)
@@ -231,7 +227,7 @@ func (f *DRSSFeed) GetProfile() error {
 
 func (f *DRSSFeed) GetEvents() error {
 	sub := f.Pools.Sub(nostr.Filters{{
-		Authors: nostr.StringList(f.PubKeys),
+		Authors: nostr.StringList{f.PubKey},
 		Kinds:   nostr.IntList{nostr.KindTextNote},
 	}})
 
@@ -244,7 +240,7 @@ func (f *DRSSFeed) GetEvents() error {
 	}()
 
 	//wait to receive all events then close the subscription
-	time.Sleep(1 * time.Second)
+	time.Sleep(2 * time.Second)
 	sub.Unsub()
 	evs := make([]*nostr.Event, 0)
 	for _, ev := range events {
@@ -264,7 +260,7 @@ func (f *DRSSFeed) GetEvents() error {
 
 func SortEventsDateDesc(events []*nostr.Event) []*nostr.Event {
 	sort.Slice(events, func(i, j int) bool {
-		return events[i].CreatedAt.Before(events[j].CreatedAt)
+		return events[i].CreatedAt.After(events[j].CreatedAt)
 	})
 	return events
 }
@@ -301,8 +297,8 @@ func (f *DRSSFeed) DRSSToRSS() error {
 	f.RSS = &feeds.Feed{
 		Title:       f.DisplayName,
 		Created:     time.Now(),
-		Link:        &feeds.Link{Href: fmt.Sprintf("https://nostr.com/p/%s", f.PubKeys[0])},
-		Description: fmt.Sprintf("drss feed generated from nostr events by the public key: %s", f.PubKeys[0]),
+		Link:        &feeds.Link{Href: fmt.Sprintf("https://nostr.com/p/%s", f.PubKey)},
+		Description: fmt.Sprintf("drss feed generated from nostr events by the public key: %s", f.PubKey),
 		Items:       items,
 	}
 	return nil
