@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	nostr "github.com/fiatjaf/go-nostr"
@@ -229,30 +230,43 @@ func (f *DRSSFeed) GetProfile() error {
 }
 
 func (f *DRSSFeed) GetEvents() error {
-	fmt.Println("in getevents")
-	log.Println("in getevents loggz")
 	sub := f.Pools.Sub(nostr.Filters{{
 		Authors: nostr.StringList(f.PubKeys),
 		Kinds:   nostr.IntList{nostr.KindTextNote},
 	}})
 
-	events := make([]*nostr.Event, 0)
+	events := make([]nostr.Event, 0)
 	//launch a goroutine to listen to the relay
 	go func() {
 		for e := range sub.UniqueEvents {
-			events = append(events, &e)
+			events = append(events, e)
 		}
 	}()
 
 	//wait to receive all events then close the subscription
 	time.Sleep(1 * time.Second)
 	sub.Unsub()
-	log.Printf("Received %d events", len(events))
+	evs := make([]*nostr.Event, 0)
 	for _, ev := range events {
-		log.Printf("Event: %s", ev.ID)
+		evs = append(evs, &nostr.Event{
+			ID:        ev.ID,
+			CreatedAt: ev.CreatedAt,
+			Kind:      ev.Kind,
+			Tags:      ev.Tags,
+			Content:   ev.Content,
+			PubKey:    ev.PubKey,
+			Sig:       ev.Sig,
+		})
 	}
-	f.Events = UniquifyEvents(events)
+	f.Events = UniquifyEvents(evs)
 	return nil
+}
+
+func SortEventsDateDesc(events []*nostr.Event) []*nostr.Event {
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].CreatedAt.Before(events[j].CreatedAt)
+	})
+	return events
 }
 
 func UniquifyEvents(events []*nostr.Event) []*nostr.Event {
@@ -260,7 +274,6 @@ func UniquifyEvents(events []*nostr.Event) []*nostr.Event {
 	for _, ev := range events {
 		uniq[ev.ID] = ev
 	}
-	log.Printf("Unique events: %d", len(uniq))
 	uniqEvents := make([]*nostr.Event, 0)
 	for _, ev := range uniq {
 		uniqEvents = append(uniqEvents, ev)
