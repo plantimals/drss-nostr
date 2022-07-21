@@ -219,7 +219,7 @@ func (f *DRSSFeed) GetProfile() error {
 	}
 
 	var profile NostrProfile
-	err := json.Unmarshal([]byte(events[0].Content), &profile)
+	err := json.Unmarshal([]byte(UniquifyEvents(events)[0].Content), &profile)
 	if err != nil {
 		return err
 	}
@@ -229,7 +229,8 @@ func (f *DRSSFeed) GetProfile() error {
 }
 
 func (f *DRSSFeed) GetEvents() error {
-
+	fmt.Println("in getevents")
+	log.Println("in getevents loggz")
 	sub := f.Pools.Sub(nostr.Filters{{
 		Authors: nostr.StringList(f.PubKeys),
 		Kinds:   nostr.IntList{nostr.KindTextNote},
@@ -246,7 +247,7 @@ func (f *DRSSFeed) GetEvents() error {
 	//wait to receive all events then close the subscription
 	time.Sleep(1 * time.Second)
 	sub.Unsub()
-
+	log.Printf("Received %d events", len(events))
 	f.Events = UniquifyEvents(events)
 	return nil
 }
@@ -256,6 +257,7 @@ func UniquifyEvents(events []*nostr.Event) []*nostr.Event {
 	for _, ev := range events {
 		uniq[ev.ID] = ev
 	}
+	log.Printf("Unique events: %d", len(uniq))
 	uniqEvents := make([]*nostr.Event, 0)
 	for _, ev := range uniq {
 		uniqEvents = append(uniqEvents, ev)
