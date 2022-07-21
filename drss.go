@@ -214,9 +214,7 @@ func (f *DRSSFeed) GetProfile() error {
 	time.Sleep(1 * time.Second)
 	sub.Unsub()
 
-	if len(events) > 1 {
-		return fmt.Errorf("more than one profile event")
-	} else if len(events) == 0 {
+	if len(events) == 0 {
 		return fmt.Errorf("no profile event")
 	}
 
