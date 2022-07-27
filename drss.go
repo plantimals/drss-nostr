@@ -281,8 +281,8 @@ func UniquifyEvents(events []*nostr.Event) []*nostr.Event {
 // takes n public keys and compiles them into a feed
 func (f *DRSSFeed) DRSSToRSS() error {
 
-	if err := f.GetEvents(); err != nil {
-		return err
+	if f.Events == nil {
+		return fmt.Errorf("no events to convert")
 	}
 
 	items := make([]*feeds.Item, 0)
