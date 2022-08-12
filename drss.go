@@ -8,7 +8,9 @@ import (
 	"time"
 
 	nostr "github.com/fiatjaf/go-nostr"
-	"github.com/gorilla/feeds"  //composes RSS from nostr events
+	"github.com/gomarkdown/markdown"
+	"github.com/gorilla/feeds" //composes RSS from nostr events
+	"github.com/microcosm-cc/bluemonday"
 	"github.com/mmcdole/gofeed" //parses RSS from nostr events
 )
 
@@ -297,7 +299,7 @@ func (f *DRSSFeed) DRSSToRSS() error {
 	f.RSS = &feeds.Feed{
 		Title:       f.DisplayName,
 		Created:     time.Now(),
-		Link:        &feeds.Link{Href: fmt.Sprintf("https://nostr.com/p/%s", f.PubKey)},
+		Link:        &feeds.Link{Href: fmt.Sprintf("https://nostr.io/p/%s", f.PubKey)},
 		Description: fmt.Sprintf("drss feed generated from nostr events by the public key: %s", f.PubKey),
 		Items:       items,
 	}
@@ -306,11 +308,13 @@ func (f *DRSSFeed) DRSSToRSS() error {
 
 // EventToItem converts a nostr event to a RSS item
 func EventToItem(event *nostr.Event) (*feeds.Item, error) {
+	md := markdown.ToHTML([]byte(event.Content), nil, nil)
+	content := bluemonday.UGCPolicy().SanitizeBytes(md)
 	item := &feeds.Item{
 		Author:  &feeds.Author{Name: event.PubKey},
-		Content: event.Content,
+		Content: string(content),
 		Created: event.CreatedAt,
-		Link:    &feeds.Link{Href: fmt.Sprintf("https://nostr.com/e/%s", event.ID)},
+		Link:    &feeds.Link{Href: fmt.Sprintf("https://nostr.io/e/%s", event.ID)},
 		Id:      event.ID,
 	}
 	return item, nil
