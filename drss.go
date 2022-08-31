@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	nostr "github.com/fiatjaf/go-nostr"
@@ -12,18 +13,21 @@ import (
 	"github.com/gorilla/feeds" //composes RSS from nostr events
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/mmcdole/gofeed" //parses RSS from nostr events
+	log "github.com/sirupsen/logrus"
 )
 
 // DRSSFeed is a collection of data required to go from RSS to nostr and back
 type DRSSFeed struct {
-	DisplayName string           `json:"display_name,omitempty"`
-	PubKey      string           `json:"pub_key,omitempty"`
-	Relays      []string         `json:"relays,omitempty"`
-	Pools       *nostr.RelayPool `json:"-"`
-	FeedURL     string           `json:"feed_url,omitempty"`
-	RSS         *feeds.Feed      `json:"-"`
-	Events      []*nostr.Event   `json:"-"`
-	Profile     *NostrProfile    `json:"profile,omitempty"`
+	DisplayName string             `json:"display_name,omitempty"`
+	PubKey      string             `json:"pub_key,omitempty"`
+	Relays      []string           `json:"relays,omitempty"`
+	Pools       *nostr.RelayPool   `json:"-"`
+	FeedURL     string             `json:"feed_url,omitempty"`
+	RSS         *feeds.Feed        `json:"-"`
+	Events      []*nostr.Event     `json:"-"`
+	Profile     *NostrProfile      `json:"profile,omitempty"`
+	PrivKey     string             `json:"priv_key,omitempty"`
+	Policy      *bluemonday.Policy `json:"-"`
 }
 
 /*
@@ -54,6 +58,7 @@ func NewFeed(j []byte) (*DRSSFeed, error) {
 	if feed.Relays != nil {
 		feed.AddRelays()
 	}
+	feed.Policy = bluemonday.UGCPolicy()
 	return &feed, nil
 }
 
@@ -98,12 +103,10 @@ func GetRSSFeed(url string) (*gofeed.Feed, error) {
 }
 
 // RSSToDRSS converts an RSS feed to a DRSS feed, a collection of nostr events
-/*func (f *DRSSFeed) RSSToDRSS() error {
+func (f *DRSSFeed) RSSToDRSS() error {
 
 	//check that feed object has necessary inputs for this operation
-	if f.PrivKey == "" {
-		return fmt.Errorf("no priv key")
-	} else if f.FeedURL == "" {
+	if f.FeedURL == "" {
 		return fmt.Errorf("no feed url")
 	} else if f.Relays == nil {
 		return fmt.Errorf("no relays")
@@ -117,7 +120,7 @@ func GetRSSFeed(url string) (*gofeed.Feed, error) {
 	nostrEvents := make([]*nostr.Event, 0)
 
 	for _, item := range feed.Items {
-		ev, err := RSSItemToEvent(item, f.PrivKey)
+		ev, err := f.RSSItemToEvent(item, f.PrivKey)
 		if err != nil {
 			panic(err)
 		}
@@ -128,19 +131,17 @@ func GetRSSFeed(url string) (*gofeed.Feed, error) {
 	if err != nil {
 		return err
 	}
-
-	f.PubKeys = append(f.PubKeys, pubKey)
+	log.Printf("item count: %d\n", len(feed.Items))
+	log.Printf("event count: %d\n", len(nostrEvents))
+	f.PubKey = pubKey
 	f.Events = nostrEvents
 
 	return nil
 }
 
 // PublishNostr publishes the nostr events in the feed to the relays
-func (f *DRSSFeed) PublishNostr() error {
+func (f *DRSSFeed) PublishNostr(event *nostr.Event) error {
 	//check that feed object has necessary inputs for this operation
-	if f.Events == nil || len(f.Events) == 0 {
-		return fmt.Errorf("no events")
-	}
 	if f.Pools == nil {
 		return fmt.Errorf("no pools")
 	}
@@ -150,51 +151,96 @@ func (f *DRSSFeed) PublishNostr() error {
 	}
 	log.Info("Publishing nostr events under public key: " + pk)
 
-	for _, ev := range f.Events {
-		_, _, err := f.Pools.PublishEvent(ev)
-		log.Info("Published event: " + ev.ID)
-		if err != nil {
-			return err
+	ok, err := event.CheckSignature()
+	if err != nil {
+		log.Errorf("error checking signature: %s", err)
+	}
+	if !ok {
+		log.Errorf("signature check failed for event.ID: %s", event.ID)
+		return fmt.Errorf("signature check failed for event.ID: %s", event.ID)
+	}
+	e, notice, err := f.Pools.PublishEvent(event)
+	if err != nil {
+		log.Errorf("error publishing event: %s", err)
+	}
+	ShowEvent(e)
+	//timer := time.After(6 * time.Second)
+	for status := range notice {
+		switch status.Status {
+		case nostr.PublishStatusFailed:
+			log.Errorf("publish failed for event: %s", e.ID)
+		case nostr.PublishStatusSucceeded:
+			log.Infof("publish succeeded for event: %s", e.ID)
+			return nil
+		case nostr.PublishStatusSent:
+			log.Info("sent")
 		}
 	}
-	time.Sleep(3 * time.Second)
+	if err != nil {
+		return err
+	}
 	return nil
-}*/
+}
 
 // RSSItemToEvent converts a RSS item and private key into a nostr event
-func RSSItemToEvent(item *gofeed.Item, privateKey string) (*nostr.Event, error) {
-	content := item.Content
+func (f *DRSSFeed) RSSItemToEvent(item *gofeed.Item, privateKey string) (*nostr.Event, error) {
+	/*content := item.Content
 	if len(content) == 0 {
 		content = item.Description
-	}
+	}*/
 
-	if len(content) > 250 {
-		content += content[0:249] + "…"
-	}
-	content += "\n\n" + item.Link
+	var content string
+	//fmt.Printf("description: %s", item.Description)
+	content = "description goes here" //f.Policy.Sanitize(item.Description)
+
+	//content += "\n\n" + item.Link
 
 	pubkey, err := nostr.GetPublicKey(privateKey)
 	if err != nil {
+		log.Errorf("error getting public key: %s", err)
 		return nil, err
 	}
 
 	createdAt := time.Now()
-	if item.UpdatedParsed != nil {
-		createdAt = *item.UpdatedParsed
-	}
+
 	if item.PublishedParsed != nil {
 		createdAt = *item.PublishedParsed
 	}
-
+	if item.UpdatedParsed != nil {
+		createdAt = *item.UpdatedParsed
+	}
 	n := nostr.Event{
 		CreatedAt: createdAt,
-		Kind:      nostr.KindTextNote,
+		Kind:      1,
 		Tags:      nostr.Tags{},
 		Content:   content,
 		PubKey:    pubkey,
 	}
+	if item.Enclosures != nil && len(item.Enclosures) > 0 {
+		tags := make([]nostr.StringList, 0)
+		for _, e := range item.Enclosures {
+			if !strings.Contains(e.Type, "audio") {
+				continue
+			} else if e.URL != "" {
+				tags = append(tags, nostr.StringList{"resource", e.URL, e.Type})
+			}
+		}
+		n.Tags = append(n.Tags, tags...)
+	}
 	n.ID = string(n.Serialize())
-	n.Sign(privateKey)
+	err = n.Sign(privateKey)
+	if err != nil {
+		log.Errorf("error signing event: %s", err)
+		return nil, err
+	}
+	good, err := n.CheckSignature()
+	if err != nil {
+		log.Errorf("error checking signature: %s", err)
+		return nil, err
+	}
+	if !good {
+		return nil, fmt.Errorf("signature is not valid")
+	}
 	return &n, nil
 }
 
@@ -317,5 +363,19 @@ func EventToItem(event *nostr.Event) (*feeds.Item, error) {
 		Link:    &feeds.Link{Href: fmt.Sprintf("https://nostr.io/e/%s", event.ID)},
 		Id:      event.ID,
 	}
+	for _, tag := range event.Tags {
+		if tag[0] == "resource" && len(tag[0]) > 2 {
+			item.Enclosure.Url = tag[1]
+			item.Enclosure.Type = tag[2]
+		}
+	}
 	return item, nil
+}
+
+func ShowEvent(evt *nostr.Event) {
+	b, err := json.MarshalIndent(evt, "", "    ")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(b))
 }
